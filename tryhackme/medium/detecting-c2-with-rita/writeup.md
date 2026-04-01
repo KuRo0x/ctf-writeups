@@ -8,7 +8,7 @@
 | **Room** | Detecting C2 with RITA (AOC2025) |
 | **Difficulty** | Medium |
 | **Category** | Threat Hunting / Network Forensics / C2 Detection |
-| **MITRE ATT&CK** | T1071.001 (Web Protocols), T1571 (Non-Standard Port), T1102 (Web Service) |
+| **MITRE ATT&CK** | T1071.001 — C2 over HTTP (observed); T1102 — Web Service used as communication channel |
 
 ---
 
@@ -122,28 +122,36 @@ Long connection durations indicate persistent, interactive sessions — consiste
 
 ### Port 80 — HTTP as a C2 Channel
 
-Host `10.0.0.13` connected to `rabbithole.malhare.net` over **port 80/tcp/http**. Attackers deliberately use HTTP because it traverses most firewall policies without inspection, blends into baseline web traffic volume, and allows the implant to disguise callbacks as normal browsing activity.
+Host `10.0.0.13` connected to `rabbithole.malhare.net` over **port 80/tcp/http**. Attackers use HTTP because it traverses most firewall policies uninspected and blends into baseline web traffic. The pattern observed here — 40 connections with a 97.70% beacon score — is consistent with HTTP short polling: the implant sends a GET/POST at a fixed interval and receives tasking in the response body.
 
-HTTP C2 communication typically follows one of two patterns:
-- **Short polling** — the implant sends a small HTTP GET/POST at a fixed interval, receives tasking in the response body. This produces the high connection counts and regular IATs observed here (40 connections, 97.70% beacon score).
-- **Long polling** — the implant holds an open HTTP connection waiting for tasking, producing long durations with low connection counts.
-
-More sophisticated frameworks (e.g., Cobalt Strike with **malleable C2 profiles**) allow operators to customize every field of the HTTP transaction — URI paths, headers, user-agent strings, response body structure — to mimic legitimate application traffic (e.g., impersonating jQuery requests or Windows Update). **Domain fronting** takes this further: the TLS SNI header points to a trusted CDN (e.g., Cloudflare), while the HTTP Host header routes traffic to the actual C2, bypassing domain-based firewall rules entirely. Neither technique was confirmed here, but both are relevant escalation paths when HTTP C2 is identified.
+More sophisticated frameworks use **malleable C2 profiles** to customize HTTP headers, URI paths, and user-agent strings to mimic legitimate traffic, or **domain fronting** to route C2 through trusted CDNs. Neither was confirmed here, but both are relevant escalation paths when HTTP C2 is identified.
 
 ---
 
 ## Key Findings
 
-| Indicator | Value | Significance |
-|-----------|-------|--------------|
-| C2 Domain | `rabbithole.malhare.net` | High beacon scores across multiple hosts |
-| C2 Domain | `malhare.net` | Parent domain, 3 internal hosts communicating |
-| Secondary Domain | `c2.thm-labs.net` | Additional C2 destination detected |
-| Compromised Hosts | 10.0.0.10, 10.0.0.11, 10.0.0.12, 10.0.0.13, 10.0.0.14, 10.0.0.15 | Multiple internal endpoints beaconing |
-| Max Connection Count | 40 (to `rabbithole.malhare.net`) | High frequency beaconing |
-| Top Beacon Score | 97.70% | Near-perfect periodicity — automated C2 callback |
-| Port Used (10.0.0.13) | 80/tcp/http | HTTP-based C2 communication |
-| Prevalence | 6/10 (60%) | Broad scope — requires correlation to confirm C2 |
+### Primary Indicators
+
+| Indicator | Value | Why It Matters |
+|-----------|-------|----------------|
+| C2 Domain | `rabbithole.malhare.net` | Beacon scores 64–97.70% across 6 internal hosts |
+| Max Connection Count | 40 | High-frequency automated callback pattern |
+| Compromised Hosts | 10.0.0.10–10.0.0.15 | Broad internal compromise confirmed |
+
+### Supporting Indicators
+
+| Indicator | Value | Why It Matters |
+|-----------|-------|----------------|
+| Connection Duration | 17m8s – 21m1s | Persistent sessions abnormal for HTTP |
+| Port / Protocol | 80/tcp/http | HTTP used to blend C2 into normal traffic |
+| Secondary Domain | `c2.thm-labs.net` | Additional C2 destination from same network segment |
+
+### Contextual Indicators
+
+| Indicator | Value | Why It Matters |
+|-----------|-------|----------------|
+| Prevalence | 6/10 (60%) | Scopes blast radius; not C2 confirmation alone |
+| Parent Domain | `malhare.net` | 3 hosts communicating — used to map infrastructure |
 
 ---
 
@@ -161,54 +169,40 @@ More sophisticated frameworks (e.g., Cobalt Strike with **malleable C2 profiles*
 
 ## Real-World Application
 
-### How This Appears in a SIEM (Splunk)
+### Beaconing Detection — Splunk
 
 ```spl
-# Detect beaconing: high connection count to same destination with low interval stdev
 index=network sourcetype=zeek_conn
 | sort _time
 | streamstats current=f last(_time) AS prev_time BY id.orig_h, id.resp_h
 | eval interval=_time - prev_time
-| stats count AS conn_count, stdev(interval) AS interval_stdev, avg(duration) AS avg_dur
+| stats count AS conn_count, stdev(interval) AS interval_stdev
     BY id.orig_h, id.resp_h, id.resp_p
 | where conn_count > 15 AND interval_stdev < 30
 | sort -conn_count
-
-# Long connection duration anomaly
-index=network sourcetype=zeek_conn
-| where duration > 600
-| table _time, id.orig_h, id.resp_h, id.resp_p, duration, orig_bytes, resp_bytes
-
-# DNS query volume spike (possible DNS tunneling or DGA)
-index=network sourcetype=zeek_dns
-| rex field=query "(?<domain>[^.]+\.[^.]+)$"
-| stats count AS query_count, dc(query) AS unique_subdomains BY domain, id.orig_h
-| where query_count > 50 OR unique_subdomains > 20
-| sort -unique_subdomains
 ```
 
-### SOC Threat Hunting Actions
+Detects automated callbacks by identifying high connection counts with low inter-arrival time variance — the statistical signature of beaconing.
 
-Upon RITA flagging `rabbithole.malhare.net` as high-severity, the investigation pivots as follows:
+### Threat Hunting Pivots
 
-1. **Pivot on destination across all log sources** — Query `conn.log`, `http.log`, `ssl.log`, and `dns.log` for all traffic to `malhare.net` and subdomains. Identify the full list of source IPs, not just those RITA surfaced.
-2. **Analyze connection interval distribution** — Extract timestamps for each source→destination pair and compute IAT. A stdev < 10–30 seconds on intervals confirms automated beaconing versus human-driven browsing.
-3. **DNS entropy and query frequency** — Check `dns.log` for query volume to `malhare.net`. Excessive subdomain diversity or high-entropy labels (e.g., `a3f9bc.malhare.net`) would indicate DNS-based C2 or DGA activity.
-4. **Correlate with endpoint logs** — Map beaconing hosts (10.0.0.10–0.15) to Sysmon Event ID 3 (network connections) and Event ID 1 (process creation). Identify which process owns the outbound connection — browser vs. system process vs. unknown binary.
-5. **User activity correlation** — Compare beaconing timestamps against authentication logs (Event ID 4624/4634). Beaconing during off-hours or outside user session windows confirms autonomous implant behavior.
-6. **Certificate analysis** — Query `ssl.log` for connections to `malhare.net`. Check certificate issuer, validity period, and subject. Self-signed or Let's Encrypt certs on C2 infrastructure are common; short-lived certs indicate infrastructure rotation.
+1. **Interval analysis** — Extract IAT per source→destination pair from `conn.log`. Stdev < 30s confirms automated periodicity over human browsing.
+2. **Endpoint correlation** — Map beaconing hosts to Sysmon Event ID 3 (network connection) and Event ID 1 (process creation) to identify the implant process responsible for the outbound traffic.
+3. **User session validation** — Compare beaconing timestamps against authentication logs (Event ID 4624/4634). Callbacks during off-hours or outside active sessions confirm autonomous implant behavior.
 
-### Relevant Log Sources for Detection
+---
 
-| Log Source | What to Look For |
-|------------|-----------------|
-| Zeek conn.log | High conn_count, low interval stdev, long duration to same dst |
-| Zeek ssl.log | Self-signed certs, short validity periods, rare JA3 hashes |
-| Zeek dns.log | High query volume, high-entropy subdomains, long FQDNs |
-| Zeek http.log | Rare user agents, MIME mismatch, fixed URI patterns |
-| Sysmon Event ID 3 | Network connections — identify owning process |
-| Sysmon Event ID 1 | Process creation — catch implant execution |
-| Windows Event 4688 | Process creation with network activity on same host |
+## Detection Confidence Assessment
+
+| Signal Type | Indicator | Weight |
+|-------------|-----------|--------|
+| **Primary** | Beacon score up to 97.70% — near-perfect interval regularity | High |
+| **Supporting** | 40 connections to single destination | High |
+| **Supporting** | 6 internal hosts beaconing the same C2 domain | High |
+| **Weak/Contextual** | Prevalence 60% — requires correlation, not standalone | Low |
+| **Weak/Contextual** | Port 80 — common port, insufficient alone | Low |
+
+**Overall Confidence: HIGH** — Primary and supporting signals are independently sufficient to confirm C2 activity. Contextual signals provide scope only.
 
 ---
 
@@ -219,3 +213,18 @@ Upon RITA flagging `rabbithole.malhare.net` as high-severity, the investigation 
 - **HTTP C2 blends in** — Port 80 is rarely blocked. Without content inspection or user-agent baselining, HTTP C2 traffic is indistinguishable from legitimate web browsing at the firewall level.
 - **Small datasets affect scoring** — RITA's `First Seen` modifier is less reliable in short capture windows. In production, continuous log ingestion over days provides more accurate baselines.
 - **RITA complements SIEMs** — RITA excels at statistical beaconing detection that rule-based SIEMs miss. Both should be used together in a mature SOC.
+
+---
+
+## Final Assessment
+
+The analyzed traffic is **consistent with active C2 communication**. The convergence of multiple independent indicators eliminates benign explanations:
+
+- Beacon scores of up to **97.70%** indicate near-perfect connection periodicity — a statistical signature of automated malware callbacks, not human-driven browsing
+- **40 connections** to a single external domain from one host reflects high-frequency implant check-ins
+- **6 of 10 internal hosts** communicating with the same C2 infrastructure confirms a broad compromise, not an isolated incident
+- **HTTP on port 80** was deliberately used to blend C2 traffic into normal web activity and avoid firewall-level blocking
+
+**Conclusion:** C2 activity confirmed with high probability. Immediate containment of the 10.0.0.0/24 segment and endpoint forensics on all beaconing hosts is warranted.
+
+**Confidence Level: HIGH**
