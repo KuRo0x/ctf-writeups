@@ -4,7 +4,7 @@ All TryHackMe room writeups categorized by difficulty.
 
 | Difficulty | Rooms |
 |------------|-------|
-| 🟢 Easy | 0 |
+| 🟢 Easy | 1 |
 | 🟡 Medium | 0 |
 | 🔴 Hard | 0 |
 
@@ -13,7 +13,10 @@ All TryHackMe room writeups categorized by difficulty.
 ## Rooms Index
 
 ### 🟢 Easy
-> _No writeups yet._
+
+| Room | Category | Date |
+|------|----------|------|
+| [Introduction to EDR](./easy/introduction-to-edr/writeup.md) | Blue Team / SOC / Endpoint Security | 2026-05-06 |
 
 ### 🟡 Medium
 > _No writeups yet._

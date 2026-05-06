@@ -1,6 +1,8 @@
 # 🛡️ Cybersecurity CTF Writeups
 
-> Cybersecurity CTF writeups and technical analysis from TryHackMe challenges, including enumeration, exploitation steps, tools used, MITRE ATT&CK mapping, and detection opportunities.
+> CTF writeups and technical analysis from TryHackMe challenges — focused on blue team skills, SOC analysis, EDR triage, MITRE ATT&CK mapping, and detection engineering.
+
+**By:** [KuRo](https://github.com/KuRo0x) — SOC Analyst (Blue Team) | Morocco
 
 ---
 
@@ -8,8 +10,8 @@
 
 | Category | Count |
 |----------|-------|
-| ✅ Rooms Completed | 0 |
-| 🟢 Easy | 0 |
+| ✅ Rooms Completed | 1 |
+| 🟢 Easy | 1 |
 | 🟡 Medium | 0 |
 | 🔴 Hard | 0 |
 
@@ -17,23 +19,24 @@
 
 ## 🎯 Focus Areas
 
-- Web Exploitation
-- Privilege Escalation
-- Network Enumeration
-- Reverse Shells
-- Forensics & Crypto
+- Endpoint Detection & Response (EDR)
+- SOC Analysis & Alert Triage
+- MITRE ATT&CK Mapping
+- Threat Detection Engineering
+- Log Analysis & SIEM (ELK Stack)
+- Network Forensics & Intrusion Detection
 
 ---
 
 ## 🔍 Methodology
 
 Each writeup contains:
-- Enumeration
-- Exploitation steps
-- Commands used
-- Tools used
+- Room summary and learning objectives
+- Key concepts and techniques learned
+- Attack scenario analysis
 - MITRE ATT&CK mapping
-- Detection opportunities
+- Detection opportunities (Sigma rules / ELK)
+- Lessons learned
 
 ---
 
@@ -45,20 +48,11 @@ ctf-writeups/
 ├── tryhackme/
 │   ├── README.md
 │   ├── easy/
-│   │   └── room-name/
+│   │   └── introduction-to-edr/
 │   │       ├── writeup.md
-│   │       ├── tools.md
-│   │       └── screenshots/
+│   │       └── tools.md
 │   ├── medium/
-│   │   └── room-name/
-│   │       ├── writeup.md
-│   │       ├── tools.md
-│   │       └── screenshots/
 │   └── hard/
-│       └── room-name/
-│           ├── writeup.md
-│           ├── tools.md
-│           └── screenshots/
 ├── techniques/
 │   ├── privilege-escalation.md
 │   ├── sql-injection.md
@@ -76,4 +70,4 @@ ctf-writeups/
 
 ## 🌐 Platform
 
-Currently focused on **TryHackMe** rooms.
+Currently focused on **TryHackMe** — SOC Level 1 path and blue team rooms.
